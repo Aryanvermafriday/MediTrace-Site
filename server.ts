@@ -19,31 +19,22 @@ app.use("/api", (_req, res, next) => {
   next();
 });
 
-let supabaseAdmin: ReturnType<typeof createClient> | null | undefined;
 let supabaseVerifier: ReturnType<typeof createClient> | null | undefined;
 
-function getSupabaseAdmin() {
-  if (supabaseAdmin !== undefined) return supabaseAdmin;
+function getSupabasePublicCredentials() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  supabaseAdmin = supabaseUrl && serviceRoleKey
-    ? createClient(supabaseUrl, serviceRoleKey, {
-        auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-      })
-    : null;
-  return supabaseAdmin;
+  const publishableKey =
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY;
+  return supabaseUrl && publishableKey ? { supabaseUrl, publishableKey } : null;
 }
 
 function getSupabaseVerifier() {
   if (supabaseVerifier !== undefined) return supabaseVerifier;
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const verificationKey =
-    process.env.SUPABASE_PUBLISHABLE_KEY ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-  supabaseVerifier = supabaseUrl && verificationKey
-    ? createClient(supabaseUrl, verificationKey, {
+  const credentials = getSupabasePublicCredentials();
+  supabaseVerifier = credentials
+    ? createClient(credentials.supabaseUrl, credentials.publishableKey, {
         auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
       })
     : null;
@@ -104,8 +95,10 @@ app.get("/api/health", (req, res) => {
 
 const signupAttempts = new Map<string, { count: number; resetAt: number }>();
 
-// Email/password registration with immediate confirmation. The service-role key is
-// used only on the server and is never included in the Vite client bundle.
+// Email/password registration uses the public Supabase Auth signup API. With
+// Confirm Email disabled, Supabase immediately returns a session and sends no OTP
+// or verification email. A new client is used per request to avoid sharing auth
+// state between serverless invocations.
 app.post("/api/auth/signup", async (req, res) => {
   const now = Date.now();
   const requestIp = req.ip || req.socket.remoteAddress || "unknown";
@@ -118,8 +111,8 @@ app.post("/api/auth/signup", async (req, res) => {
     resetAt: attempt && attempt.resetAt > now ? attempt.resetAt : now + 15 * 60 * 1000,
   });
 
-  const admin = getSupabaseAdmin();
-  if (!admin) {
+  const credentials = getSupabasePublicCredentials();
+  if (!credentials) {
     return res.status(503).json({ error: "Account registration is not configured on this deployment." });
   }
 
@@ -133,19 +126,31 @@ app.post("/api/auth/signup", async (req, res) => {
   }
 
   try {
-    const { data, error } = await admin.auth.admin.createUser({
+    const signupClient = createClient(credentials.supabaseUrl, credentials.publishableKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    });
+    const { data, error } = await signupClient.auth.signUp({
       email,
       password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: fullName,
-        preferred_language: preferredLanguage,
+      options: {
+        data: {
+          full_name: fullName,
+          preferred_language: preferredLanguage,
+        },
       },
     });
     if (error) {
       const duplicate = /already|registered|exists/i.test(error.message);
       return res.status(duplicate ? 409 : 400).json({
         error: duplicate ? "An account with this email already exists. Sign in instead." : error.message,
+      });
+    }
+    if (!data.user) {
+      return res.status(500).json({ error: "Supabase did not create the account." });
+    }
+    if (!data.session) {
+      return res.status(409).json({
+        error: "Supabase email confirmation is enabled. Disable Confirm Email in Authentication settings, then try again.",
       });
     }
     return res.status(201).json({ success: true, userId: data.user.id });

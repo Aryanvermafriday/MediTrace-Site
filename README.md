@@ -20,9 +20,7 @@ In **Authentication → Providers**:
 
 - Keep Email/Password enabled.
 - Disable Phone authentication and any unused social providers.
-- The application signup endpoint creates email users with `email_confirm: true`, so users can sign in immediately without an OTP or verification email.
-
-Never expose the service-role key in a variable whose name starts with `VITE_`.
+- Keep **Confirm Email** disabled. The signup endpoint uses Supabase's publishable-key email/password flow; with this setting disabled, Supabase immediately returns a session without an OTP or verification email.
 
 ## Vercel environment variables
 
@@ -34,7 +32,6 @@ Add these values for Production, Preview, and Development:
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser | Supabase publishable key |
 | `SUPABASE_URL` | Server | Same Supabase project URL |
 | `SUPABASE_PUBLISHABLE_KEY` | Server | Same publishable key, used to validate sessions |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Supabase service-role key used only for immediate-confirmation signup |
 | `GEMINI_API_KEY` | Server only, optional | Enables live extraction and referral generation; deterministic fallbacks are used when omitted |
 
 Vercel should detect the project as Vite. The build command is `pnpm build`, the output directory is `dist`, and protected API traffic is handled by `api/[...path].ts`.
