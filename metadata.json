@@ -1,0 +1,6 @@
+{
+  "name": "MediTrace",
+  "description": "AI-assisted continuity-of-care platform for rural and underserved patients, organizing fragmented medical records into a portable health profile, multi-facility timeline, and doctor-ready referral summary.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
